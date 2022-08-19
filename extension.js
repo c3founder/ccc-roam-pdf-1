@@ -141,6 +141,160 @@ const panelConfig = {
   ]
 };
 
+let ccc = {};
+
+ccc.util = ((c3u) => {
+    ///////////////Front-End///////////////
+    c3u.getUidOfContainingBlock = (el) => {
+        return el.closest('.rm-block__input').id.slice(-9)
+    }
+
+    c3u.insertAfter = (newEl, anchor) => {
+        anchor.parentElement.insertBefore(newEl, anchor.nextSibling)
+    }
+
+    c3u.getNthChildUid = (parentUid, order) => {
+        const allChildren = c3u.allChildrenInfo(parentUid)[0][0].children;
+        const childrenOrder = allChildren.map(function (child) { return child.order; });
+        const index = childrenOrder.findIndex(el => el === order);
+        return index !== -1 ? allChildren[index].uid : null;
+    }
+
+    c3u.sleep = m => new Promise(r => setTimeout(r, m))
+
+    c3u.createPage = (pageTitle) => {
+        let pageUid = c3u.createUid()
+        const status = window.roamAlphaAPI.createPage(
+            {
+                "page":
+                { "title": pageTitle, "uid": pageUid }
+            })
+        return status ? pageUid : null
+    }
+
+    c3u.updateBlockString = (blockUid, newString) => {
+        return window.roamAlphaAPI.updateBlock({
+            block: { uid: blockUid, string: newString }
+        });
+    }
+
+    c3u.hashCode = (str) => {
+        let hash = 0, i, chr;
+        for (i = 0; i < str.length; i++) {
+            chr = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + chr;
+            hash |= 0; // Convert to 32bit integer
+        }
+        return hash;
+    }
+
+    c3u.createChildBlock = (parentUid, order, childString, childUid) => {
+        return window.roamAlphaAPI.createBlock(
+            {
+                location: { "parent-uid": parentUid, order: order },
+                block: { string: childString.toString(), uid: childUid }
+            })
+    }
+
+    c3u.openBlockInSidebar = (windowType, blockUid) => {
+        return window.roamAlphaAPI.ui.rightSidebar.addWindow({ window: { type: windowType, 'block-uid': blockUid } })
+    }
+
+    c3u.deletePage = (pageUid) => {
+        return window.roamAlphaAPI.deletePage({ page: { uid: pageUid } });
+    }
+
+
+    c3u.createUid = () => {
+        return roamAlphaAPI.util.generateUID();
+    }
+
+
+
+    ///////////////Back-End///////////////
+    c3u.existBlockUid = (blockUid) => {
+        const res = window.roamAlphaAPI.q(
+            `[:find (pull ?block [:block/uid])
+        :where
+               [?block :block/uid \"${blockUid}\"]]`)
+        return res.length ? blockUid : null
+    }
+
+    c3u.deleteBlock = (blockUid) => {
+        return window.roamAlphaAPI.deleteBlock({ "block": { "uid": blockUid } });
+    }
+
+    c3u.parentBlockUid = (blockUid) => {
+        const res = window.roamAlphaAPI.q(
+            `[:find (pull ?parent [:block/uid])
+        :where
+            [?parent :block/children ?block]
+               [?block :block/uid \"${blockUid}\"]]`)
+        return res.length ? res[0][0].uid : null
+    }
+
+    c3u.blockString = (blockUid) => {
+        return window.roamAlphaAPI.q(
+            `[:find (pull ?block [:block/string])
+        :where [?block :block/uid \"${blockUid}\"]]`)[0][0].string
+    }
+
+    c3u.allChildrenInfo = (blockUid) => {
+        let results = window.roamAlphaAPI.q(
+            `[:find (pull ?parent 
+                [* {:block/children [:block/string :block/uid :block/order]}])
+      :where
+          [?parent :block/uid \"${blockUid}\"]]`)
+        return (results.length == 0) ? undefined : results
+
+    }
+
+    c3u.queryAllTxtInChildren = (blockUid) => {
+        return window.roamAlphaAPI.q(`[
+            :find (pull ?block [
+                :block/string
+                {:block/children ...}
+            ])
+            :where [?block :block/uid \"${blockUid}\"]]`)
+    }
+
+    c3u.getPageUid = (pageTitle) => {
+        const res = window.roamAlphaAPI.q(
+            `[:find (pull ?page [:block/uid])
+        :where [?page :node/title \"${pageTitle}\"]]`)
+        return res.length ? res[0][0].uid : null
+    }
+
+    c3u.getOrCreatePageUid = (pageTitle, initString = null) => {
+        let pageUid = c3u.getPageUid(pageTitle)
+        if (!pageUid) {
+            pageUid = c3u.createPage(pageTitle);
+            if (initString)
+                c3u.createChildBlock(pageUid, 0, initString, c3u.createUid());
+        }
+        return pageUid;
+    }
+
+    c3u.isAncestor = (a, b) => {
+        const results = window.roamAlphaAPI.q(
+            `[:find (pull ?root [* {:block/children [:block/uid {:block/children ...}]}])
+            :where
+                [?root :block/uid \"${a}\"]]`);
+        if (!results.length) return false;
+        let descendantUids = [];
+        c3u.getUidFromNestedNodes(results[0][0], descendantUids)
+        return descendantUids.includes(b);
+    }
+
+    c3u.getUidFromNestedNodes = (node, descendantUids) => {
+        if (node.uid) descendantUids.push(node.uid)
+        if (node.children)
+            node.children.forEach(child => c3u.getUidFromNestedNodes(child, descendantUids))
+    }
+
+    return c3u;
+})(ccc.util || {});
+
 /*******************Parameter BEGIN*********************/
 // const pdfParams = window.pdfParams;
 /*******************Parameter END***********************/
@@ -155,38 +309,22 @@ let pdfParams = {};
 
 /* Begin Importing Utility Functions */
 function onload({ extensionAPI }) {
-  pdfParams.outputHighlighAt = setSettingDefault(extensionAPI, 'outputHighlighAt', 'cousin');
-  pdfParams.highlightHeading = setSettingDefault(extensionAPI, 'highlightHeading', '**Highlights**');
-  pdfParams.appendHighlight = setSettingDefault(extensionAPI, 'appendHighlight', 'true');
-  pdfParams.breadCrumbAttribute = setSettingDefault(extensionAPI, 'breadCrumbAttribute', 'Title');
-  pdfParams.addColoredHighlight = setSettingDefault(extensionAPI, 'addColoredHighlight', true);
-  pdfParams.copyBlockRef = setSettingDefault(extensionAPI, 'copyBlockRef', true);
-  pdfParams.sortBtnText = setSettingDefault(extensionAPI, 'sortBtnText', 'sort them all!');
-  pdfParams.aliasChar = setSettingDefault(extensionAPI, 'aliasChar', '✳');
-  pdfParams.textChar = setSettingDefault(extensionAPI, 'textChar', 'T');
-  pdfParams.pdfMinHeight = setSettingDefault(extensionAPI, 'pdfMinHeight', 900);
-  pdfParams.citationFormat = setSettingDefault(extensionAPI, 'citationFormat', '');
-  pdfParams.blockQPerfix = setSettingDefault(extensionAPI, 'blockQPerfix', '');
+    pdfParams.outputHighlighAt = setSettingDefault(extensionAPI, 'outputHighlighAt', 'cousin');
+    pdfParams.highlightHeading = setSettingDefault(extensionAPI, 'highlightHeading', '**Highlights**');
+    pdfParams.appendHighlight = setSettingDefault(extensionAPI, 'appendHighlight', 'true');
+    pdfParams.breadCrumbAttribute = setSettingDefault(extensionAPI, 'breadCrumbAttribute', 'Title');
+    pdfParams.addColoredHighlight = setSettingDefault(extensionAPI, 'addColoredHighlight', true);
+    pdfParams.copyBlockRef = setSettingDefault(extensionAPI, 'copyBlockRef', true);
+    pdfParams.sortBtnText = setSettingDefault(extensionAPI, 'sortBtnText', 'sort them all!');
+    pdfParams.aliasChar = setSettingDefault(extensionAPI, 'aliasChar', '✳');
+    pdfParams.textChar = setSettingDefault(extensionAPI, 'textChar', 'T');
+    pdfParams.pdfMinHeight = setSettingDefault(extensionAPI, 'pdfMinHeight', 900);
+    pdfParams.citationFormat = setSettingDefault(extensionAPI, 'citationFormat', '');
+    pdfParams.blockQPerfix = setSettingDefault(extensionAPI, 'blockQPerfix', '');
 
-  console.log("here", pdfParams.addColoredHighlight)
+    extensionAPI.settings.panel.create(panelConfig);
 
-  
-
-  extensionAPI.settings.panel.create(panelConfig);
-
-  if (typeof ccc !== 'undefined' && typeof ccc.util !== 'undefined') {
-    //Somebody has already loaded the utility
     startC3PdfExtension();
-  } else {
-    let s = document.createElement("script");
-    s.type = "text/javascript";
-    s.src = "https://c3founder.github.io/Roam-Enhancement/enhancedUtility.js"
-    s.id = 'c3util4pdf'
-    s.onload = () => { startC3PdfExtension() }
-    try { document.getElementById('c3util4pdf').remove() } catch (e) { };
-    document.getElementsByTagName('head')[0].appendChild(s);
-  }
-  extensionAPI.settings.panel.create(panelConfig);
 }
 /* End Importing Utility Functions */
 
@@ -195,147 +333,146 @@ function onunload() {
 }
 
 function startC3PdfExtension() {
-  var ccc = window.ccc || {};
-  var c3u = ccc.util;
-  /*******************************************************/
-  /**********************Main BEGIN***********************/
+    var c3u = ccc.util;
+    /*******************************************************/
+    /**********************Main BEGIN***********************/
 
-  // const serverPerfix = 'http://localhost:3000/?url=';
-  const serverPerfix = 'https://roampdf.web.app/?url=';
-  const pdfChar = ' ';
+    // const serverPerfix = 'http://localhost:3000/?url=';
+    const serverPerfix = 'https://roampdf.web.app/?url=';
+    const pdfChar = ' ';
 
 
-  function initPdf() {
-    Array.from(document.getElementsByTagName('iframe')).forEach(iframe => {
-      if (!iframe.classList.contains('pdf-activated')) {
-        try {
-          if (new URL(iframe.src).pathname.endsWith('.pdf')) {
-            const originalPdfUrl = iframe.src; //the permanent pdfId
-            iframe.id = "pdf-" + iframe.closest('.roam-block').id; //window level pdfId          
-            const pdfBlockUid = c3u.getUidOfContainingBlock(iframe); //for click purpose
-            allPdfIframes.push(iframe); //save for interaction
-            renderPdf(iframe); //render pdf through the server 
-            sendHighlights(iframe, originalPdfUrl, pdfBlockUid);
-          }
-        } catch { } // some iframes have invalid src
-      }
-      if (iframe.src.startsWith(serverPerfix)) {
-        adjustPdfIframe(iframe);
-      }
-    })
-    activateButtons();
-  }
-  ///////////////Responsive PDF Iframe 
-  function adjustPdfIframe(iframe) {
-    const reactParent = iframe.closest('.react-resizable')
-    const reactHandle = reactParent.querySelector(".react-resizable-handle")
-    const hoverParent = iframe.closest('.hoverparent')
-    reactHandle.style.display = 'none';
-    reactParent.style.width = '100%';
-    reactParent.style.height = '100%';
-    hoverParent.style.width = '100%';
-    hoverParent.style.height = '100%';
-  }
-  /************************Main END***********************/
-  /*******************************************************/
-
-  /*******************************************************/
-  /*************Look for Highlight Delete BEGIN***********/
-  let hlDeletionObserver = new MutationObserver(mutations => {
-    mutations.forEach(mutation => {
-      mutation.removedNodes.forEach(node => {
-        if (typeof (node.classList) !== 'undefined') {
-          if (node.classList.contains("roam-block-container")) { //if a block is deleted
-            handleHighlightDelete(node)
-            handlePdfDelete(node)
-          }
-        }
-      });
-    });
-  });
-
-  function handleHighlightDelete(node) {
-    Array.from(node.getElementsByTagName('button')) //if it had a button
-      .filter(isHighlightBtn)
-      .forEach(async function (btn) {
-        const match = btn.id.match(/main-hlBtn-(.........)/)
-        if (match) {
-          if (c3u.existBlockUid(match[1])) {//If the data page was deleted ignore 
-            await c3u.sleep(3000) //Maybe someone is moving blocks or undo                  
-            if (!c3u.existBlockUid(c3u.blockString(match[1]))) {
-              //Delete the date row                
-              const hlDataRowUid = match[1];
-              const hlDataRow = c3u.queryAllTxtInChildren(hlDataRowUid);
-              const toDeleteHighlight = getHighlight(hlDataRow[0][0]);
-              const dataTableUid = c3u.parentBlockUid(hlDataRowUid);
-              c3u.deleteBlock(hlDataRowUid)
-              //Delete the hl on pdf (send message to render)            
-              const dataPageUid = c3u.parentBlockUid(dataTableUid);
-              const pdfUrl = encodePdfUrl(c3u.blockString(c3u.getNthChildUid(dataPageUid, 0)));
-              Array.from(document.getElementsByTagName('iframe'))
-                .filter(x => x.src === pdfUrl)
-                .forEach(iframe => {
-                  iframe.contentWindow.postMessage({ deleted: toDeleteHighlight }, '*');
-                });
+    function initPdf() {
+        Array.from(document.getElementsByTagName('iframe')).forEach(iframe => {
+            if (!iframe.classList.contains('pdf-activated')) {
+                try {
+                    if (new URL(iframe.src).pathname.endsWith('.pdf')) {
+                        const originalPdfUrl = iframe.src; //the permanent pdfId
+                        iframe.id = "pdf-" + iframe.closest('.roam-block').id; //window level pdfId          
+                        const pdfBlockUid = c3u.getUidOfContainingBlock(iframe); //for click purpose
+                        allPdfIframes.push(iframe); //save for interaction
+                        renderPdf(iframe); //render pdf through the server 
+                        sendHighlights(iframe, originalPdfUrl, pdfBlockUid);
+                    }
+                } catch { } // some iframes have invalid src
             }
-          }
-        }
-      });
-  }
+            if (iframe.src.startsWith(serverPerfix)) {
+                adjustPdfIframe(iframe);
+            }
+        })
+        activateButtons();
+    }
+    ///////////////Responsive PDF Iframe 
+    function adjustPdfIframe(iframe) {
+        const reactParent = iframe.closest('.react-resizable')
+        const reactHandle = reactParent.querySelector(".react-resizable-handle")
+        const hoverParent = iframe.closest('.hoverparent')
+        reactHandle.style.display = 'none';
+        reactParent.style.width = '100%';
+        reactParent.style.height = '100%';
+        hoverParent.style.width = '100%';
+        hoverParent.style.height = '100%';
+    }
+    /************************Main END***********************/
+    /*******************************************************/
 
-  function handlePdfDelete(node) {
-    Array.from(node.getElementsByTagName('iframe'))
-      .filter(x => { return x.src.indexOf(serverPerfix) !== -1; })
-      .forEach(async function (iframe) {
-        await c3u.sleep(1000) //Maybe someone is moving blocks or undo
-        const pdfUid = iframe.id.slice(-9)
-        if (!c3u.existBlockUid(pdfUid)) { //pdf block deleted
-          const pdfUrl = decodePdfUrl(iframe.src)
-          const pdfDataPageTitle = getDataPageTitle(pdfUrl);
-          const pdfDataPageUid = c3u.getPageUid(pdfDataPageTitle);
-          if (pdfDataPageUid) { //If the data page exists
-            const tableUid = c3u.getNthChildUid(pdfDataPageUid, 2);
-            const res = c3u.allChildrenInfo(tableUid)[0][0];
-            c3u.deletePage(pdfDataPageUid)
-            res.children.map(async function (child) {
-              //You can check their existence but seems redundent. 
-              c3u.deleteBlock(child.string);
+    /*******************************************************/
+    /*************Look for Highlight Delete BEGIN***********/
+    let hlDeletionObserver = new MutationObserver(mutations => {
+        mutations.forEach(mutation => {
+            mutation.removedNodes.forEach(node => {
+                if (typeof (node.classList) !== 'undefined') {
+                    if (node.classList.contains("roam-block-container")) { //if a block is deleted
+                        handleHighlightDelete(node)
+                        handlePdfDelete(node)
+                    }
+                }
             });
-          }
-        }
-      });
-  }
-
-
-  ///////////////Wait for roam to fully load then observe
-  let roamArticle;
-  let roamArticleReady = setInterval(() => {
-    if (!document.querySelector('.roam-app')) return;
-    roamArticle = document.querySelector('.roam-app')
-    hlDeletionObserver.observe(roamArticle, {
-      childList: true,
-      subtree: true
+        });
     });
-    clearInterval(roamArticleReady);
-  }, 1000);
-  /*************Look for Highlight Delete END***********/
-  /*****************************************************/
 
-  /*******************************************************/
-  /**************Button Activation BEGIN******************/
-  /*****Fixing Highlight Btns Appearance and Functions****/
-  function activateButtons() {
-    Array.from(document.getElementsByTagName('button'))
-      .filter(isUnObservedHighlightBtn)
-      .forEach(btn => {
-        if (!btn.closest('.rm-zoom-item'))
-          hlBtnAppearsObserver.observe(btn);
-        btn.classList.add('btn-observed');
-      })
-    activateSortButtons();
-  }
+    function handleHighlightDelete(node) {
+        Array.from(node.getElementsByTagName('button')) //if it had a button
+            .filter(isHighlightBtn)
+            .forEach(async function (btn) {
+                const match = btn.id.match(/main-hlBtn-(.........)/)
+                if (match) {
+                    if (c3u.existBlockUid(match[1])) {//If the data page was deleted ignore 
+                        await c3u.sleep(3000) //Maybe someone is moving blocks or undo                  
+                        if (!c3u.existBlockUid(c3u.blockString(match[1]))) {
+                            //Delete the date row                
+                            const hlDataRowUid = match[1];
+                            const hlDataRow = c3u.queryAllTxtInChildren(hlDataRowUid);
+                            const toDeleteHighlight = getHighlight(hlDataRow[0][0]);
+                            const dataTableUid = c3u.parentBlockUid(hlDataRowUid);
+                            c3u.deleteBlock(hlDataRowUid)
+                            //Delete the hl on pdf (send message to render)            
+                            const dataPageUid = c3u.parentBlockUid(dataTableUid);
+                            const pdfUrl = encodePdfUrl(c3u.blockString(c3u.getNthChildUid(dataPageUid, 0)));
+                            Array.from(document.getElementsByTagName('iframe'))
+                                .filter(x => x.src === pdfUrl)
+                                .forEach(iframe => {
+                                    iframe.contentWindow.postMessage({ deleted: toDeleteHighlight }, '*');
+                                });
+                        }
+                    }
+                }
+            });
+    }
 
-  function activateSortButtons() {
+    function handlePdfDelete(node) {
+        Array.from(node.getElementsByTagName('iframe'))
+            .filter(x => { return x.src.indexOf(serverPerfix) !== -1; })
+            .forEach(async function (iframe) {
+                await c3u.sleep(1000) //Maybe someone is moving blocks or undo
+                const pdfUid = iframe.id.slice(-9)
+                if (!c3u.existBlockUid(pdfUid)) { //pdf block deleted
+                    const pdfUrl = decodePdfUrl(iframe.src)
+                    const pdfDataPageTitle = getDataPageTitle(pdfUrl);
+                    const pdfDataPageUid = c3u.getPageUid(pdfDataPageTitle);
+                    if (pdfDataPageUid) { //If the data page exists
+                        const tableUid = c3u.getNthChildUid(pdfDataPageUid, 2);
+                        const res = c3u.allChildrenInfo(tableUid)[0][0];
+                        c3u.deletePage(pdfDataPageUid)
+                        res.children.map(async function (child) {
+                            //You can check their existence but seems redundent. 
+                            c3u.deleteBlock(child.string);
+                        });
+                    }
+                }
+            });
+    }
+
+
+    ///////////////Wait for roam to fully load then observe
+    let roamArticle;
+    let roamArticleReady = setInterval(() => {
+        if (!document.querySelector('.roam-app')) return;
+        roamArticle = document.querySelector('.roam-app')
+        hlDeletionObserver.observe(roamArticle, {
+            childList: true,
+            subtree: true
+        });
+        clearInterval(roamArticleReady);
+    }, 1000);
+    /*************Look for Highlight Delete END***********/
+    /*****************************************************/
+
+    /*******************************************************/
+    /**************Button Activation BEGIN******************/
+    /*****Fixing Highlight Btns Appearance and Functions****/
+    function activateButtons() {
+        Array.from(document.getElementsByTagName('button'))
+            .filter(isUnObservedHighlightBtn)
+            .forEach(btn => {
+                if (!btn.closest('.rm-zoom-item'))
+                    hlBtnAppearsObserver.observe(btn);
+                btn.classList.add('btn-observed');
+            })
+        activateSortButtons();
+    }
+
+    function activateSortButtons() {
     Array.from(document.getElementsByTagName('button'))
       .filter(isInactiveSortBtn)
       .forEach(btn => {
@@ -365,164 +502,164 @@ function startC3PdfExtension() {
 
         }
       })
-  }
-  let options = {
-    root: document.querySelector('.roam-app'),
-    rootMargin: "0px 0px 500px 0px",
-    threshold: 1.0
-  }
+    }
+    let options = {
+        root: document.querySelector('.roam-app'),
+        rootMargin: "0px 0px 500px 0px",
+        threshold: 1.0
+    }
 
-  function activateSingleBtn(entries) {
-    entries.forEach((entry) => {
-      const btn = entry.target;
-      if (isInactiveHighlightBtn(btn) && entry.intersectionRatio > .25) {
-        const hlInfo = getHlInfoFromBtn(btn);
-        const highlight = getSingleHighlight(hlInfo.uid)
-        let pdfInfo = getPdfInfoFromHighlight(hlInfo.uid);
-        if (pdfInfo) {
-          const btnBlock = btn.closest(".rm-block__input");
-          const page = btn.innerText;
-          addBreadcrumb(btnBlock, page, pdfInfo.uid);
-          pdfInfo.url = encodePdfUrl(pdfInfo.url);
-          handleBtn(btn, pdfInfo, hlInfo, highlight);
+    function activateSingleBtn(entries) {
+        entries.forEach((entry) => {
+            const btn = entry.target;
+            if (isInactiveHighlightBtn(btn) && entry.intersectionRatio > .25) {
+                const hlInfo = getHlInfoFromBtn(btn);
+                const highlight = getSingleHighlight(hlInfo.uid)
+                let pdfInfo = getPdfInfoFromHighlight(hlInfo.uid);
+                if (pdfInfo) {
+                    const btnBlock = btn.closest(".rm-block__input");
+                    const page = btn.innerText;
+                    addBreadcrumb(btnBlock, page, pdfInfo.uid);
+                    pdfInfo.url = encodePdfUrl(pdfInfo.url);
+                    handleBtn(btn, pdfInfo, hlInfo, highlight);
+                }
+            }
+        });
+    }
+
+    let hlBtnAppearsObserver = new IntersectionObserver(activateSingleBtn, options);
+
+    /////////////////////////////////////////////////////////
+    ///////////////Portal to the Data Page //////////////////
+    /////////////////////////////////////////////////////////
+    ///////////////From highlight => Data page => Retrieve PDF url and uid.
+    function getPdfInfoFromHighlight(hlBlockUid) {
+        let match = c3u.blockString(hlBlockUid).match(/\[..?]\(\(\((.........)\)\)\)/);
+        if (!match[1]) return null;
+        const pdfUid = match[1];
+        match = c3u.blockString(pdfUid).match(/\{{\[?\[?pdf\]?\]?:\s(.*)}}/);
+        if (!match[1]) return null;
+        const pdfUrl = match[1];
+        return { url: pdfUrl, uid: pdfUid };
+    }
+
+    ///////////////From highlight => Row of the data table => Highlight coordinates
+    function getSingleHighlight(hlBlockUid) {
+        const hlDataRowUid = getHighlightDataBlockUid(hlBlockUid);
+        const hlDataRow = c3u.queryAllTxtInChildren(hlDataRowUid);
+        if (hlDataRow.length === 0) return null;
+        return getHighlight(hlDataRow[0][0]);
+    }
+
+    ///////////////From button's text jump to the corresponding data table row
+    function getHighlightDataBlockUid(hlBlockUid) {
+        const match = c3u.blockString(hlBlockUid).match(/{{\d+:\s*(.........)}}/);
+        if (!match) return null;
+        return match[1]
+    }
+
+    ///////////////Get the Original Highlight
+    ///////////////Where am I? Main Hilight or Reference?
+    function getHlInfoFromBtn(btn) {
+        let hlType, hlUid;
+        const blockRefSpan = btn.closest('.rm-block-ref')
+        if (!blockRefSpan) {
+            hlType = 'main';
+            hlUid = c3u.getUidOfContainingBlock(btn);
+        } else {
+            hlType = 'ref';
+            hlUid = blockRefSpan.dataset.uid
         }
-      }
-    });
-  }
-
-  let hlBtnAppearsObserver = new IntersectionObserver(activateSingleBtn, options);
-
-  /////////////////////////////////////////////////////////
-  ///////////////Portal to the Data Page //////////////////
-  /////////////////////////////////////////////////////////
-  ///////////////From highlight => Data page => Retrieve PDF url and uid.
-  function getPdfInfoFromHighlight(hlBlockUid) {
-    let match = c3u.blockString(hlBlockUid).match(/\[..?]\(\(\((.........)\)\)\)/);
-    if (!match[1]) return null;
-    const pdfUid = match[1];
-    match = c3u.blockString(pdfUid).match(/\{{\[?\[?pdf\]?\]?:\s(.*)}}/);
-    if (!match[1]) return null;
-    const pdfUrl = match[1];
-    return { url: pdfUrl, uid: pdfUid };
-  }
-
-  ///////////////From highlight => Row of the data table => Highlight coordinates
-  function getSingleHighlight(hlBlockUid) {
-    const hlDataRowUid = getHighlightDataBlockUid(hlBlockUid);
-    const hlDataRow = c3u.queryAllTxtInChildren(hlDataRowUid);
-    if (hlDataRow.length === 0) return null;
-    return getHighlight(hlDataRow[0][0]);
-  }
-
-  ///////////////From button's text jump to the corresponding data table row
-  function getHighlightDataBlockUid(hlBlockUid) {
-    const match = c3u.blockString(hlBlockUid).match(/{{\d+:\s*(.........)}}/);
-    if (!match) return null;
-    return match[1]
-  }
-
-  ///////////////Get the Original Highlight
-  ///////////////Where am I? Main Hilight or Reference?
-  function getHlInfoFromBtn(btn) {
-    let hlType, hlUid;
-    const blockRefSpan = btn.closest('.rm-block-ref')
-    if (!blockRefSpan) {
-      hlType = 'main';
-      hlUid = c3u.getUidOfContainingBlock(btn);
-    } else {
-      hlType = 'ref';
-      hlUid = blockRefSpan.dataset.uid
+        return { type: hlType, uid: hlUid };
     }
-    return { type: hlType, uid: hlUid };
-  }
 
-  function getHighlightsFromTable(uid) {
-    const hls = c3u.queryAllTxtInChildren(uid)[0][0].children;
-    return hls.map(function (x) { return getHighlight(x); }).filter(hl => hl != null);
-  }
-
-  function getHighlight(hl) { //the column order is: (hlUid, hlInfo(pos, color), hlTxt)  
-    //Extracting Text
-    const hlText = hl.children[0].children[0].string;
-    //Extracting Info = (position, color)
-    const hlInfo = JSON.parse(hl.children[0].string);
-    let position, color;
-    if (typeof (hlInfo.position) === 'undefined') {//if older version highlight
-      position = JSON.parse(hl.children[0].string);
-      color = 0;
-    } else {
-      position = hlInfo.position;
-      color = hlInfo.color;
+    function getHighlightsFromTable(uid) {
+        const hls = c3u.queryAllTxtInChildren(uid)[0][0].children;
+        return hls.map(function (x) { return getHighlight(x); }).filter(hl => hl != null);
     }
-    //Extracting Id
-    const id = hl.string
-    return { id, content: { text: hlText }, position, color };
-  }
 
-  ////////////////////////////////////////////////////////////
-  ////////Activate all of the Highlight Buttons////////
-  ////////////////////////////////////////////////////////////
-
-  ////////Open the PDF and send the HLs to server
-  async function handleHighlightClick(e, pdfInfo, highlight) {
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    let iframe = getOpenIframeElementWithSrc(pdfInfo.url);
-    if (!iframe) { //Iframe is closed      
-      c3u.openBlockInSidebar('block', pdfInfo.uid)
-      await c3u.sleep(3000);
-      iframe = getOpenIframeElementWithSrc(pdfInfo.url);
+    function getHighlight(hl) { //the column order is: (hlUid, hlInfo(pos, color), hlTxt)  
+        //Extracting Text
+        const hlText = hl.children[0].children[0].string;
+        //Extracting Info = (position, color)
+        const hlInfo = JSON.parse(hl.children[0].string);
+        let position, color;
+        if (typeof (hlInfo.position) === 'undefined') {//if older version highlight
+            position = JSON.parse(hl.children[0].string);
+            color = 0;
+        } else {
+            position = hlInfo.position;
+            color = hlInfo.color;
+        }
+        //Extracting Id
+        const id = hl.string
+        return { id, content: { text: hlText }, position, color };
     }
-    iframe.contentWindow.postMessage({ scrollTo: highlight }, '*');
-  }
 
-  function getOpenIframeElementWithSrc(iframeSrc) {
-    return Array.from(document.getElementsByTagName('iframe'))
-      .find(iframe => iframe.src === iframeSrc);
-  }
+    ////////////////////////////////////////////////////////////
+    ////////Activate all of the Highlight Buttons////////
+    ////////////////////////////////////////////////////////////
 
-  function handleBtn(btn, pdfInfo, hlInfo, highlight) {
-    const blockUid = c3u.getUidOfContainingBlock(btn);
-    //Shared for main and reference jump btns 
-    const extraClass = 'btn-' + hlInfo.type + '-annotation'
-    btn.classList.add(extraClass, 'btn', 'btn-default', 'btn-pdf-activated');
-    const btnId = getHighlightDataBlockUid(hlInfo.uid);
-    btn.id = hlInfo.type + '-hlBtn-' + btnId;
-    btn.addEventListener("click", (e) => { handleHighlightClick(e, pdfInfo, highlight) });
-
-    if (hlInfo.type === 'ref') {
-      //Fix highlight btn
-      btn.classList.add('popup');
-      const wrapperSpan = btn.closest('.bp3-popover-wrapper')
-      const closestSpan = btn.closest('span')
-      closestSpan.classList.add('displacedBtns')
-      closestSpan.parentElement.closest('span').querySelector('.rm-block__ref-count-footnote')?.closest('.bp3-popover-wrapper').remove();
-      c3u.insertAfter(closestSpan, wrapperSpan)
-      //Fix footnote btn if exists
-      const footnote = wrapperSpan.closest('span').querySelector('.rm-block__ref-count-footnote')
-      footnote?.classList.add('popup');
-      //Add replace with text and alias btns      
-
-      let btnRepText = null, btnRepAlias = null;
-      if (pdfParams.textChar !== '') {
-        btnRepText = createCtrlBtn(1, blockUid, hlInfo.uid);
-        btnRepText.addEventListener("click", function (e) {
-          replaceHl(blockUid, hlInfo.uid, 1, btn)
-        });
-        c3u.insertAfter(btnRepText, btn)
-      }
-      if (pdfParams.aliasChar !== '') {
-        btnRepAlias = createCtrlBtn(0, blockUid, hlInfo.uid);
-        btnRepAlias.addEventListener("click", function (e) {
-          replaceHl(blockUid, hlInfo.uid, 0, btn)
-        });
-        c3u.insertAfter(btnRepAlias, btn)
-      }
+    ////////Open the PDF and send the HLs to server
+    async function handleHighlightClick(e, pdfInfo, highlight) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        let iframe = getOpenIframeElementWithSrc(pdfInfo.url);
+        if (!iframe) { //Iframe is closed      
+            c3u.openBlockInSidebar('block', pdfInfo.uid)
+            await c3u.sleep(3000);
+            iframe = getOpenIframeElementWithSrc(pdfInfo.url);
+        }
+        iframe.contentWindow.postMessage({ scrollTo: highlight }, '*');
     }
-  }
 
-  function createCtrlBtn(asText, btnBlockUid, hlBlockUid) {
+    function getOpenIframeElementWithSrc(iframeSrc) {
+        return Array.from(document.getElementsByTagName('iframe'))
+            .find(iframe => iframe.src === iframeSrc);
+    }
+
+    function handleBtn(btn, pdfInfo, hlInfo, highlight) {
+        const blockUid = c3u.getUidOfContainingBlock(btn);
+        //Shared for main and reference jump btns 
+        const extraClass = 'btn-' + hlInfo.type + '-annotation'
+        btn.classList.add(extraClass, 'btn', 'btn-default', 'btn-pdf-activated');
+        const btnId = getHighlightDataBlockUid(hlInfo.uid);
+        btn.id = hlInfo.type + '-hlBtn-' + btnId;
+        btn.addEventListener("click", (e) => { handleHighlightClick(e, pdfInfo, highlight) });
+
+        if (hlInfo.type === 'ref') {
+            //Fix highlight btn
+            btn.classList.add('popup');
+            const wrapperSpan = btn.closest('.bp3-popover-wrapper')
+            const closestSpan = btn.closest('span')
+            closestSpan.classList.add('displacedBtns')
+            closestSpan.parentElement.closest('span').querySelector('.rm-block__ref-count-footnote')?.closest('.bp3-popover-wrapper').remove();
+            c3u.insertAfter(closestSpan, wrapperSpan)
+            //Fix footnote btn if exists
+            const footnote = wrapperSpan.closest('span').querySelector('.rm-block__ref-count-footnote')
+            footnote?.classList.add('popup');
+            //Add replace with text and alias btns      
+
+            let btnRepText = null, btnRepAlias = null;
+            if (pdfParams.textChar !== '') {
+                btnRepText = createCtrlBtn(1, blockUid, hlInfo.uid);
+                btnRepText.addEventListener("click", function (e) {
+                    replaceHl(blockUid, hlInfo.uid, 1, btn)
+                });
+                c3u.insertAfter(btnRepText, btn)
+            }
+            if (pdfParams.aliasChar !== '') {
+                btnRepAlias = createCtrlBtn(0, blockUid, hlInfo.uid);
+                btnRepAlias.addEventListener("click", function (e) {
+                    replaceHl(blockUid, hlInfo.uid, 0, btn)
+                });
+                c3u.insertAfter(btnRepAlias, btn)
+            }
+        }
+    }
+
+    function createCtrlBtn(asText, btnBlockUid, hlBlockUid) {
     const trail = asText ? 'text' : 'alias';
     const btnText = asText ? pdfParams.textChar : pdfParams.aliasChar;
     const cssClass = 'btn-rep-' + trail;
