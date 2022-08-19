@@ -307,7 +307,6 @@ function setSettingDefault(extensionAPI, settingId, settingDefault) {
 
 let pdfParams = {};
 
-/* Begin Importing Utility Functions */
 function onload({ extensionAPI }) {
     pdfParams.outputHighlighAt = setSettingDefault(extensionAPI, 'outputHighlighAt', 'cousin');
     pdfParams.highlightHeading = setSettingDefault(extensionAPI, 'highlightHeading', '**Highlights**');
@@ -326,11 +325,15 @@ function onload({ extensionAPI }) {
 
     startC3PdfExtension();
 }
-/* End Importing Utility Functions */
+
+let hlDeletionObserver;
+let hlBtnAppearsObserver;
 
 function onunload() {
-
+    if (hlDeletionObserver) hlDeletionObserver.disconnect();
+    if (hlBtnAppearsObserver) hlBtnAppearsObserver.disconnect();
 }
+
 
 function startC3PdfExtension() {
     var c3u = ccc.util;
@@ -378,7 +381,7 @@ function startC3PdfExtension() {
 
     /*******************************************************/
     /*************Look for Highlight Delete BEGIN***********/
-    let hlDeletionObserver = new MutationObserver(mutations => {
+    hlDeletionObserver = new MutationObserver(mutations => {
         mutations.forEach(mutation => {
             mutation.removedNodes.forEach(node => {
                 if (typeof (node.classList) !== 'undefined') {
@@ -527,7 +530,7 @@ function startC3PdfExtension() {
         });
     }
 
-    let hlBtnAppearsObserver = new IntersectionObserver(activateSingleBtn, options);
+    hlBtnAppearsObserver = new IntersectionObserver(activateSingleBtn, options);
 
     /////////////////////////////////////////////////////////
     ///////////////Portal to the Data Page //////////////////
